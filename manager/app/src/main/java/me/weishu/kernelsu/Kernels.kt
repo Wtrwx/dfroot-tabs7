@@ -13,10 +13,7 @@ data class KernelVersion(val major: Int, val patchLevel: Int, val subLevel: Int)
     }
 
     fun isGKI(): Boolean {
-        // o1s/HZC2 5.4 backport: runs KSU-LKM fine; the GKI concept does not
-        // apply to this Samsung non-GKI tree (would always show the GKI
-        // warning otherwise). Treat as supported.
-        return true
+        return KernelCompatibility.isGkiVersion(major, patchLevel)
     }
 }
 

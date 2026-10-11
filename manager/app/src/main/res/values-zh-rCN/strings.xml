@@ -60,6 +60,10 @@
     <string name="jailbreak_mode">越狱模式</string>
     <string name="home_jailbreak">越狱</string>
     <string name="jailbreak_timeout">越狱可能失败，请检查日志</string>
+    <string name="jailbreak_blocked_firmware">当前固件禁止加载内核模块，无法使用 KernelSU 越狱模式。</string>
+    <string name="jailbreak_unsupported_kernel">越狱模式需要受支持的内核。此设备需要集成 KernelSU 的专用内核。</string>
+    <string name="jailbreak_requires_permissive">越狱模式要求 SELinux 处于 Permissive 状态。</string>
+    <string name="jailbreak_selinux_unknown">无法读取 SELinux 状态，暂时不能使用越狱模式。</string>
     <string name="safe_mode_module_disabled">处于安全模式下，禁止安装模块</string>
     <string name="reboot_to_apply">重启生效</string>
     <string name="module_magisk_conflict">因与 Magisk 有冲突，所有模块不可用！</string>

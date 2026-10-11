@@ -258,7 +258,7 @@ private fun StatusCard(
                         }
                     }
 
-                    state.kernelVersion.isGKI() -> {
+                    state.isKernelSupported -> {
                         Icon(Icons.Outlined.Warning, stringResource(R.string.home_not_installed))
                         Column(
                             modifier = Modifier
@@ -275,7 +275,7 @@ private fun StatusCard(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        if (state.isSELinuxPermissive) {
+                        if (state.canJailbreak) {
                             Button(
                                 onClick = actions.onJailbreakClick,
                                 colors = ButtonDefaults.buttonColors(
@@ -297,7 +297,7 @@ private fun StatusCard(
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = stringResource(R.string.home_unsupported_reason),
+                                text = stringResource(state.jailbreakBlockReason.takeIf { it != 0 } ?: R.string.home_unsupported_reason),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }

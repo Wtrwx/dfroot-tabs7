@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.R
+import me.weishu.kernelsu.magica.JailbreakSupport
 import me.weishu.kernelsu.magica.MagicaService
 import me.weishu.kernelsu.ui.LocalMainPagerState
 import me.weishu.kernelsu.ui.LocalUiMode
@@ -57,15 +58,20 @@ fun HomePager(
         onModuleClick = { if (!uiState.showRequireKernelWarning) mainState.animateToPage(2) },
         onOpenUrl = uriHandler::openUri,
         onJailbreakClick = {
-            loadingDialog.showLoading()
-            context.startService(Intent(context, MagicaService::class.java))
-            // Manager will be force-stopped and restarted by late-load on success.
-            // If that doesn't happen within timeout, jailbreak likely failed.
-            scope.launch(Dispatchers.IO) {
-                delay(30_000)
-                withContext(Dispatchers.Main) {
-                    loadingDialog.hide()
-                    Toast.makeText(context, R.string.jailbreak_timeout, Toast.LENGTH_LONG).show()
+            val blockReason = JailbreakSupport.getJailbreakBlockReason()
+            if (blockReason != 0) {
+                Toast.makeText(context, blockReason, Toast.LENGTH_LONG).show()
+            } else {
+                loadingDialog.showLoading()
+                context.startService(Intent(context, MagicaService::class.java))
+                // Manager will be force-stopped and restarted by late-load on success.
+                // If that doesn't happen within timeout, jailbreak likely failed.
+                scope.launch(Dispatchers.IO) {
+                    delay(30_000)
+                    withContext(Dispatchers.Main) {
+                        loadingDialog.hide()
+                        Toast.makeText(context, R.string.jailbreak_timeout, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         },

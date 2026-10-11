@@ -16,6 +16,7 @@ import me.weishu.kernelsu.BuildConfig
 import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.getKernelVersion
 import me.weishu.kernelsu.ksuApp
+import me.weishu.kernelsu.magica.JailbreakSupport
 import me.weishu.kernelsu.ui.screen.home.HomeUiState
 import me.weishu.kernelsu.ui.screen.home.SystemInfo
 import me.weishu.kernelsu.ui.screen.home.getManagerVersion
@@ -49,7 +50,9 @@ class HomeViewModel : ViewModel() {
         val ksuVersion = if (isManager) Natives.version else null
         val kernelUAPIVersion = if (isManager) Natives.kernelUAPIVersion else null
         val managerUAPIVersion = Natives.managerUAPIVersion
-        val lkmMode = ksuVersion?.let { if (kernelVersion.isGKI()) Natives.isLkmMode else null }
+        val jailbreakBlockReason = JailbreakSupport.getKernelBlockReason()
+        val isKernelSupported = jailbreakBlockReason == 0
+        val lkmMode = ksuVersion?.let { if (isKernelSupported) Natives.isLkmMode else null }
         val isRootAvailable = rootAvailable()
         val managerVersion = getManagerVersion(ksuApp)
 
@@ -73,6 +76,8 @@ class HomeViewModel : ViewModel() {
             currentManagerVersionCode = managerVersion.versionCode,
             superuserCount = getSuperuserCount(),
             moduleCount = getModuleCount(),
+            isKernelSupported = isKernelSupported,
+            jailbreakBlockReason = jailbreakBlockReason,
             systemInfo = SystemInfo(
                 kernelVersion = Os.uname().release,
                 managerVersion = "${managerVersion.versionName} (${managerVersion.versionCode}-${managerUAPIVersion})",

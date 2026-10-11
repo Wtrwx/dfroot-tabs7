@@ -382,7 +382,7 @@ private fun StatusCard(
                 }
             }
 
-            state.kernelVersion.isGKI() -> {
+            state.isKernelSupported -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Card(
                         modifier = Modifier.weight(1f),
@@ -406,7 +406,7 @@ private fun StatusCard(
                                 )
                             },
                             endActions = {
-                                if (state.isSELinuxPermissive) {
+                                if (state.canJailbreak) {
                                     TextButton(
                                         text = stringResource(R.string.home_jailbreak),
                                         onClick = actions.onJailbreakClick,
@@ -431,7 +431,7 @@ private fun StatusCard(
                 ) {
                     BasicComponent(
                         title = stringResource(R.string.home_unsupported),
-                        summary = stringResource(R.string.home_unsupported_reason),
+                        summary = stringResource(state.jailbreakBlockReason.takeIf { it != 0 } ?: R.string.home_unsupported_reason),
                         startAction = {
                             Icon(
                                 Icons.Rounded.ErrorOutline,

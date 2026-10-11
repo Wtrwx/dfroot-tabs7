@@ -67,3 +67,42 @@ adb install -r dirtyfrag.apk
   busybox works as shell; root work uses sh/toybox.
 - No Zygisk (LSPosed etc. install but never inject).
 - No `overlayfs` tricks anywhere near `/system` (hardlockup → watchdog reset).
+
+## SM-T878U / DXE1 compatibility
+
+*as of 2026-10-11*
+
+The S21 module is not compatible with the Tab S7 5G `SM-T878U` running
+`T878USQS8DXE1` / `4.19.113-27114284`. That firmware has
+`CONFIG_UH_LKM_BLOCK=y` and enforced module signatures, and runs SELinux
+Enforcing. The current KernelSU late-load/Magica flow cannot complete on it.
+Userspace UID 0 alone does not supply the KernelSU kernel API.
+
+The manager now identifies this exact firmware and explains the module-loading
+block. Manual launch, the boot receiver, and app-zygote preload share read-only
+eligibility checks; unreadable SELinux state cannot enable Magica. The verified
+S21 LKM exception remains limited to `o1s` on the HZC2 kernel above. Other 4.19
+and 5.4 kernels no longer inherit that exception.
+
+This is compatibility detection, not a working SM-T878U KernelSU port. A
+non-GKI installation would need a device-specific kernel with KernelSU
+integrated and a way to boot it; the locked stock bootloader does not provide
+that path. See the [upstream non-GKI integration notes](https://kernelsu.org/guide/how-to-integrate-for-non-gki.html)
+for the legacy support boundary (last upstream version: v0.9.5).
+
+### DEFEX execution limits on this firmware (verified on device)
+
+The UID 0 process reachable on this firmware runs in the `shell` domain and can
+exec trusted-path binaries (`/system/bin/sh`, `toybox`, `app_process`) — but is
+**SIGKILLed** the moment it execs a binary from a writable path, even a
+byte-identical copy of `/system/bin/toybox`. Direct `linker64` invocation is
+killed too, even though `linker64` itself sits at a trusted path, which closes
+the usual "let the linker do the loading" bypass. Scripts are unaffected: a
+trusted `sh` reads them as text, so a root channel here must be script-based,
+never binary-based.
+
+This is the same DEFEX layer noted under *Known issues* above, and it is why the
+S21 root channel (`dfmod/sud.c` → `sh -c`) is built the way it is. The root
+cause is `CONFIG_SECURITY_DEFEX=y` with `CONFIG_DEFEX_KERNEL_ONLY` unset, i.e.
+userspace enforcement is on. DEFEX kills instead of returning `EACCES`, so the
+failure surfaces only as `exit 137` with no diagnostic of its own.

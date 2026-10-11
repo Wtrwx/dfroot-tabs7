@@ -22,6 +22,11 @@ public class BootCompletedReceiver extends BroadcastReceiver {
                 && !"me.weishu.kernelsu.magica.LAUNCH".equals(action)) {
             return;
         }
+        int blockReason = JailbreakSupport.getJailbreakBlockReason();
+        if (blockReason != 0) {
+            Log.w(TAG, "Skipping automatic jailbreak on an incompatible system: " + blockReason);
+            return;
+        }
         if (KsuCliKt.rootAvailable()) return;
         try {
             context.startService(new Intent(context, MagicaService.class));

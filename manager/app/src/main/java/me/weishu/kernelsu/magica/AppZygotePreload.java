@@ -15,7 +15,16 @@ public class AppZygotePreload implements ZygotePreload {
 
     @Override
     public void doPreload(@NonNull ApplicationInfo appInfo) {
+        int blockReason = JailbreakSupport.getJailbreakBlockReason();
+        if (blockReason != 0) {
+            Log.w(TAG, "Skipping Magica on an incompatible system: " + blockReason);
+            return;
+        }
         File f = new File(appInfo.nativeLibraryDir, "libksud.so");
+        if (!f.isFile()) {
+            Log.e(TAG, "Cannot start Magica: libksud.so is missing");
+            return;
+        }
         try {
             System.loadLibrary("kernelsu");
             Log.d(TAG, "executing magica ...");

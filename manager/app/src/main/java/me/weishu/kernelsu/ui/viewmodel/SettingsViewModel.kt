@@ -275,7 +275,7 @@ class SettingsViewModel(
 
     fun setAutoJailbreak(enabled: Boolean) {
         repo.autoJailbreak = enabled
-        _uiState.update { it.copy(autoJailbreak = enabled) }
+        _uiState.update { it.copy(autoJailbreak = repo.autoJailbreak) }
     }
 
     fun setSulogEnabled(enabled: Boolean) {

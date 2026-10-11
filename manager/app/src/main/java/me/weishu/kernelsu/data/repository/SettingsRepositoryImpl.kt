@@ -11,6 +11,7 @@ import com.topjohnwu.superuser.ShellUtils
 import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.ksuApp
 import me.weishu.kernelsu.magica.BootCompletedReceiver
+import me.weishu.kernelsu.magica.JailbreakSupport
 import me.weishu.kernelsu.ui.UiMode
 import me.weishu.kernelsu.ui.util.execKsud
 import me.weishu.kernelsu.ui.util.getFeaturePersistValue
@@ -79,19 +80,20 @@ class SettingsRepositoryImpl : SettingsRepository {
         set(value) = prefs.edit { putBoolean("enable_web_debugging", value) }
 
     override var autoJailbreak: Boolean
-        get() = prefs.getBoolean("auto_jailbreak", false)
+        get() = JailbreakSupport.isKernelSupported() && prefs.getBoolean("auto_jailbreak", false)
         set(value) {
+            val enabled = value && JailbreakSupport.isKernelSupported()
             runCatching {
                 ksuApp.packageManager.setComponentEnabledSetting(
                     ComponentName(ksuApp, BootCompletedReceiver::class.java),
-                    if (value) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                     PackageManager.DONT_KILL_APP
                 )
             }.onFailure {
-                Log.e("Settings", "failed to change boot receiver state to $value", it)
+                Log.e("Settings", "failed to change boot receiver state to $enabled", it)
             }
             prefs.edit {
-                putBoolean("auto_jailbreak", value)
+                putBoolean("auto_jailbreak", enabled)
             }
         }
 

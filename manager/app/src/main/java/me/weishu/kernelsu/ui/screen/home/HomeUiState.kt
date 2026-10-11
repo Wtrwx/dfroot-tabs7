@@ -25,9 +25,14 @@ data class HomeUiState(
     val superuserCount: Int,
     val moduleCount: Int,
     val systemInfo: SystemInfo,
+    val isKernelSupported: Boolean = kernelVersion.isGKI(),
+    val jailbreakBlockReason: Int = 0,
 ) {
     val isSELinuxPermissive: Boolean
         get() = systemInfo.selinuxStatus == "Permissive"
+
+    val canJailbreak: Boolean
+        get() = isKernelSupported && jailbreakBlockReason == 0 && isSELinuxPermissive
 
     val isFullFeatured: Boolean
         get() = isManager && !requiresNewKernel && isRootAvailable
