@@ -30,7 +30,8 @@ branch is the `SM-T878U` part, and it is deliberately small.
 | KernelSU late-load (`finit_module`) | **Not possible** |
 | KernelSU Magica | **Not possible** — still terminates in `finit_module` |
 | Custom kernel | **Not possible** — locked bootloader |
-| Userspace UID 0 in the `shell` domain | Reachable via DirtyFrag, but adds very little |
+| Userspace UID 0 in the `shell` domain | **Achieved** — ephemeral, until reboot. See *What has actually been achieved* |
+| …what that UID 0 can then do | The `shell` domain's policy and nothing more |
 | This branch | Firmware detection, honest UI, unit tests. No exploit, no LKM. |
 
 ## Why KernelSU cannot work here
@@ -103,6 +104,61 @@ loading" bypass.
 `>>>>>> START com.android.internal.os.RuntimeInit uid 0 <<<<<<` and then nothing,
 and the process exits with **`rc=0`** having done nothing. Root cause not
 established; the same command works normally as UID 2000.
+
+## What has actually been achieved
+
+Not nothing — and worth stating as precisely as the failures.
+
+### An ephemeral UID 0 channel, verified on this device
+
+DirtyFrag's write primitive (an IPsec SA plus an AES-CBC bit-flip) writes to
+**page cache**, not to disk. `/system` is a dm-verity read-only partition, so the
+write lands in the cached pages of `/system/lib64/libc++.so`. That is enough to
+redirect one libc++ function into injected shellcode, and a stable trigger —
+`init` toggling `debug.atrace.user_initiated` every 700 ms, which walks the
+libbase logging path straight through that function — hits it reliably.
+
+The shellcode runs inside `init`, passes three guards (uid 0, then TID 1, then a
+one-shot mutex under `/dev`), then writes `u:r:shell:s0` into
+`/proc/self/attr/exec` and `execve`s `/system/bin/sh`. The process crosses the
+exec still **uid 0**, now in the `shell` domain. `libc++` is restored immediately
+afterwards, so nothing is left hooked.
+
+The result is a uid-0 request/response channel that lives until reboot and needs
+no adb and no cable.
+
+### Capability matrix (measured)
+
+| | |
+|---|---|
+| Identity | `uid=0 gid=0`, context `u:r:shell:s0` |
+| Capabilities | `CapPrm = CapEff = CapBnd = 0x3fffffffff` — all 38 held, **none usable**. `shell` has no `capability` allow rules at all, so `capable()` fails at the LSM layer even though the bits are set. Held ≠ usable. |
+| `NoNewPrivs` / `Seccomp` | `0` / `0` |
+
+**Write** — allowed: a pre-created world-writable directory under
+`/data/local/tmp` (`0777`), and `/sdcard`. Denied: `/data/local/tmp` itself
+(`0771` — uid 0 is neither owner nor group, and `dac_override` is unusable),
+`/dev`, `/data/system`, `/data/misc`, `/data/app`, and `/system` (read-only).
+
+**Read** — allowed: `shell_data_file`. Denied: `/data/system/packages.xml`,
+`/data/misc/wifi/*`, `/dev/kmsg`, `/proc/kallsyms`, `/data/data`.
+
+**Denied outright** — `setenforce 0`, `kill 1`.
+
+Net: **the `shell` domain's own policy, and nothing more.** The genuine delta over
+`adb shell` is only that it (a) persists with no cable attached and (b) acts as
+uid 0 on files it owns. It is not escalation into the system.
+
+> The toolchain that produced this channel was built separately and is not
+> published in this repository.
+
+## Open questions
+
+* Why ART fails to initialise as UID 0 is unresolved (see above).
+* Whether a payload planted into a *trusted* path — e.g. under `/system`, via the
+  same page-cache write — could then be executed as UID 0. DEFEX permits trusted
+  paths, but the write primitive is constrained to extents that already exist in
+  the target file, so this is untested.
 
 ## What this branch changes
 
