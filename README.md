@@ -1,108 +1,208 @@
-# DFRoot for S21 (SM-G991B, G991BXXSJHZC2)
+# DFRoot for Galaxy Tab S7 5G — `SM-T878U` / `gts7l`
 
-Ephemeral root for Samsung S21 (locked bootloader) via DirtyFrag (CVE-2026-43284),
-plus a working KernelSU stack. Based on [diabl0w/DFRoot](https://github.com/diabl0w/DFRoot)
-(`@diabl0w github/xda`); S21 port and everything below by the fork.
+**Status: no working root on this device, and no route to one.**
+This branch is a compatibility and research record, not a root solution.
 
-<img src="docs/ss.jpeg" width="270" alt="KernelSU working">
-
-Target kernel: `5.4.242-30958140-abG991BXXSJHZC2` (Samsung o1s, Android 15).
-This is a **non-GKI** vendor kernel: no GKI symbols/ABI, trimmed kallsyms,
-CFI + PAC + RKP + DEFEX enforced. The LKM therefore resolves everything at
-runtime (custom symbol resolver), uses tracepoint + task_work instead of
-kprobes/text-patch, and never touches read-only tables. Expect per-firmware
-porting (addresses, vermagic) — nothing here is drop-in for other builds.
+Fork of [`kurtulusakyuz/dfroot-s21`](https://github.com/kurtulusakyuz/dfroot-s21),
+which ports [`diabl0w/DFRoot`](https://github.com/diabl0w/DFRoot)'s DirtyFrag
+(CVE-2026-43284) ephemeral-root flow to the Galaxy S21 (`o1s`) and adds a working
+non-GKI KernelSU LKM. **All of the S21 work is upstream's.** Everything in this
+branch is the `SM-T878U` part, and it is deliberately small.
 
 > [!WARNING]
-> No responsibility for damage. Reboot wipes root (LKM, no persistence).
+> This does not root the Tab S7. What it does is make the manager say *why* it
+> cannot, instead of failing silently.
 
-## What was built on top
+## Target device
 
-- **Exploit → `sud` daemon** (`dfmod/sud.c`): stateless root shell over
-  `/dev/.sud`. Every app-side call is one `sh -c` fork with output in `/dev/dfOUT`.
-- **KernelSU LKM** (`kernel-ksu/`): su redirect + allowlist grant, throne/manager
-  fd-install, per-namespace apex CA injection, lazy module umount, SELinux-hide
-  hooks. Samsung KDP/RKP/DEFEX/CFI-safe (tracepoint + task_work only, no text patch).
-- **`mrun.sh`** (device: `/data/adb/ksu/mrun.sh`): Magisk-style module runner —
-  file-bind + dir-mirror mounts, CA staging, zygote/app-ns injection with verify,
-  `/system_ext/bin` su+busybox mirror for bare-`su` in every shell.
-- **`ksudshim.sh`**: manager-compatible `ksud` CLI over mrun (install/enable/
-  disable/uninstall/action). `feature save` and friends are stubs (no daemon).
-- **Manager** (`manager/`, versionCode 32601): release build,
-  Flash console for uninstall, apex refresh on open, dead settings greyed out
-  (classic-su, kernel-umount locked on, SELinux-hide without reboot toast).
-- **Boot chain**: BOOT_COMPLETED posts a full-screen notification only — exploit
-  and load run *exclusively* with the activity window open (background load =
-  panic/Odin risk). Foreground guard aborts `insmod` if the window closes.
+| | |
+|---|---|
+| Device | Samsung Galaxy Tab S7 5G `SM-T878U`, codename `gts7l` (Snapdragon 865+) |
+| Android / firmware | Android 13, `T878USQS8DXE1` |
+| Kernel | `4.19.113-27114284`, non-GKI Samsung vendor kernel, 2024-05-01 patch level |
+| Bootloader | locked |
+| SELinux | Enforcing |
 
-## Layout (self-contained clone)
+## Status at a glance
 
-- `dfmod/` — stager sources.
-- `kernel-ksu/` — KernelSU LKM source. Build:
-  `S21_ROOT_OVERRIDE=/path/to/S21 bash scripts/build-kernelsu.sh KSU_GIT_VERSION=2601
-  KSU_EXPECTED_SIZE=0x2E8 KSU_EXPECTED_HASH=a86318b5… KSU_MANAGER_PACKAGE=me.weishu.kernelsu`
-- `manager/` — manager source (`KSU_MANAGER_VERSION_CODE=32601` release).
-- `scripts/` — kernel build wrappers (need sibling `toolchains/` +
-  `kernel-G991BXXSJHZC2` tree via `S21_ROOT_OVERRIDE`, plus `ANDROID_HOME` SDK/NDK).
-- `lkm/` — legacy DirtyFrag module sources.
-- External (NOT in repo): `toolchains/`, `kernel-G991BXXSJHZC2/`.
+| Route | Result |
+|---|---|
+| KernelSU late-load (`finit_module`) | **Not possible** |
+| KernelSU Magica | **Not possible** — still terminates in `finit_module` |
+| Custom kernel | **Not possible** — locked bootloader |
+| Userspace UID 0 in the `shell` domain | Reachable via DirtyFrag, but adds very little |
+| This branch | Firmware detection, honest UI, unit tests. No exploit, no LKM. |
 
-## Flow
+## Why KernelSU cannot work here
 
-Manual: open the app → **Launch Root** (exploit, window stays open) →
-**Load KernelSU** when rooted → mounts + services.
+### The module loader is removed, not disabled
 
-Autoboot: reboot → tap the DFRoot notification (let it open full-screen)
-→ window stays on → exploit → 2s settle → load KernelSU automatically.
-Same result, no taps. Background load never happens (panic/Odin guard).
+`CONFIG_UH_LKM_BLOCK=y` is a Samsung patch that takes the module loader out of
+the kernel. `__arm64_sys_finit_module` (`0xffffff800819786c`) is a rejection
+stub: 280 bytes of code that checks `capable(CAP_SYS_MODULE)`, validates the ELF
+header, and then returns an error on **every** path — `-EPERM`, `-EINVAL`, or
+`-ENOEXEC` after `vfree()`. It never calls a loader. It even carries Samsung's
+own message:
+
+```
+UH: LKM is not allowed by Samsung security policy.
+```
+
+Corroborating that, 18 loader symbols are absent from the 152,788-symbol table:
+`load_module`, `do_init_module`, `check_modinfo`, `simplify_symbols`,
+`apply_relocations`, `move_module`, `layout_and_allocate`, `complete_formation`,
+`mod_sysfs_setup`, `module_sig_check`, `elf_validity_check`,
+`copy_module_from_fd`, `add_unformed_module`, `resolve_symbol`, `unlink_module`,
+`check_module_layout`, `find_module_sections`, `module_enable_nx`.
+
+So there is no flag to flip. Even given arbitrary kernel read/write, the loader
+would have to be reimplemented and re-injected.
+
+### Module signatures are enforced
+
+`CONFIG_MODULE_SIG=y`, `CONFIG_MODULE_SIG_FORCE=y`, `CONFIG_MODULE_SIG_ALL=y`,
+`CONFIG_MODULE_SIG_HASH="sha512"`.
+
+### Kernel text and rodata are read-only at runtime
+
+`CONFIG_STRICT_KERNEL_RWX=y`, plus Samsung's EL2-level `CONFIG_UH_RKP=y`.
+`sys_call_table` (`0xffffff8009e00758`) resolves into `.kernel` — the same
+section as the kernel's text and rodata, which is what `STRICT_KERNEL_RWX` locks
+down after init.
+
+(`sig_enforce` at `0xffffff800b24a980` does land in `.kernel2`, the data section,
+and stays writable — but writing it alone buys nothing, because the loader it
+would gate no longer exists.)
+
+### The bootloader is locked
+
+Non-GKI KernelSU has to be compiled into the kernel and then booted. There is no
+way to boot a custom kernel on this device.
+
+## DEFEX: what a UID 0 process may actually do
+
+`CONFIG_SECURITY_DEFEX=y`, with `CONFIG_DEFEX_KERNEL_ONLY` unset, so userspace
+enforcement is on. DEFEX **kills** rather than returning `EACCES`, so a violation
+surfaces only as `exit 137`, with no diagnostic of its own.
+
+Measured on this firmware — same binary, only the path changed:
+
+| Executed | as UID 0 | as UID 2000 |
+|---|---|---|
+| `/system/bin/{sh,toybox,id,app_process}` | OK | OK |
+| byte-identical copy of `toybox` in a writable path | **SIGKILL** | OK |
+| `/system/bin/linker64` (a *trusted* path) | **SIGKILL** | OK |
+| `linker64 <writable-path PIE>` | **SIGKILL** | OK |
+| a script in a writable path, read by a trusted `sh` | OK | OK |
+
+So a UID 0 channel on this device must be script-based, never binary-based, and
+cannot reach the dynamic linker — which closes the usual "let the linker do the
+loading" bypass.
+
+`app_process` itself starts, but ART fails to initialise as UID 0: `logcat` shows
+`>>>>>> START com.android.internal.os.RuntimeInit uid 0 <<<<<<` and then nothing,
+and the process exits with **`rc=0`** having done nothing. Root cause not
+established; the same command works normally as UID 2000.
+
+## What this branch changes
+
+Upstream's manager treated every kernel as GKI — `Kernels.isGKI()` returned a
+hard `true`, a backport hack for the S21 `o1s`/HZC2 build. That let every
+non-GKI device inherit the S21 LKM exception and start a flow that could not
+succeed. This branch replaces it with an explicit, testable check:
+
+* **`KernelCompatibility`** (new, pure Java, no Android dependency) — keeps the
+  tested `o1s`/HZC2 exception scoped to that exact device + release, restores the
+  GKI version floor (≥ 5.10), and adds `isModuleLoadingBlocked()` matching the
+  `SM-T878U` / `T878USQS8DXE1` / `4.19.113-27114284` profile above.
+* **`JailbreakSupport`** (new) — the read-only eligibility check shared by the
+  UI, the boot receiver and the app-zygote preload, so all three agree. It never
+  spawns `getenforce` (or any other child) from app zygote, and fails closed when
+  `/sys/fs/selinux/enforce` cannot be read: unreadable is not Permissive.
+* **UI** — `HomeUiState` gains `isKernelSupported` / `jailbreakBlockReason`;
+  `canJailbreak` replaces the bare `isSELinuxPermissive` test, and both UI modes
+  show the actual reason instead of a generic "unsupported".
+* **Guards** — `AppZygotePreload`, `BootCompletedReceiver` and `HomeScreen` abort
+  with a message instead of starting a flow that cannot complete.
+* **Settings** — `autoJailbreak` is clamped to `false` on unsupported kernels and
+  the boot receiver is disabled; the ViewModel reads the clamped value back so
+  the toggle cannot disagree with stored state.
+* **Tests** — 4 unit tests over `KernelCompatibility`.
+
+## Layout
+
+* `app/` — Android stager app, built into `dirtyfrag.apk` (upstream).
+* `dfmod/` — native stager sources (`df_stager.c`) and the `sud` root daemon (`sud.c`).
+* `kernel-ksu/` — KernelSU LKM source (upstream).
+* `manager/` — KernelSU manager app; this branch's changes live here.
+* `lkm/` — legacy DirtyFrag module sources.
+* `scripts/` — kernel build wrappers.
+* `docs/` — screenshots.
+* Not in the repo: `toolchains/`, `kernel-G991BXXSJHZC2/`.
+
+## Build
 
 ```sh
-./build.sh
-adb install -r dirtyfrag.apk
+./build.sh                 # stager APK -> ./dirtyfrag.apk
 ```
+
+The manager is a separate Gradle build:
+
+```sh
+cd manager
+JAVA_HOME=<jdk17+> ANDROID_HOME=<sdk> ./gradlew :app:assembleRelease
+```
+
+It needs `ANDROID_HOME` set — the repo intentionally carries no
+`local.properties`. `./gradlew :app:compileDebugKotlin` is enough to check that
+the Kotlin compiles; the pure-Java compatibility logic can be exercised without
+Gradle at all:
+
+```sh
+javac -d out manager/app/src/main/java/me/weishu/kernelsu/KernelCompatibility.java \
+            manager/app/src/test/java/me/weishu/kernelsu/KernelCompatibilityTest.java
+java -cp out:<junit>:<hamcrest> org.junit.runner.JUnitCore me.weishu.kernelsu.KernelCompatibilityTest
+```
+
+## Upstream S21 status (inherited, unchanged here)
+
+Everything below is `kurtulusakyuz/dfroot-s21`'s work and applies to the Galaxy
+S21 `o1s` on `5.4.242-30958140-abG991BXXSJHZC2` — **not** to the Tab S7.
+
+<img src="docs/ss.jpeg" width="270" alt="KernelSU working on S21">
+
+* **Exploit → `sud` daemon** (`dfmod/sud.c`) — stateless root shell over
+  `/dev/.sud`; each app-side call is one `sh -c` fork with output in `/dev/dfOUT`.
+* **KernelSU LKM** (`kernel-ksu/`) — su redirect + allowlist grant, throne/manager
+  fd-install, per-namespace apex CA injection, lazy module umount, SELinux-hide
+  hooks. Samsung KDP/RKP/DEFEX/CFI-safe (tracepoint + task_work only, no text patch).
+* **`mrun.sh`** — Magisk-style module runner (file-bind + dir-mirror mounts, CA
+  staging, zygote/app-ns injection, `/system_ext/bin` su+busybox mirror).
+* **`ksudshim.sh`** — manager-compatible `ksud` CLI over mrun.
+* **Boot chain** — the exploit and load run only with the activity window open;
+  background load risks a panic/Odin trip, so a foreground guard aborts `insmod`
+  if the window closes.
+
+The S21 port's kernel is non-GKI too, so it faces the same general problem — it
+solves it by building the LKM into a kernel it is allowed to boot. That is the
+step the Tab S7 cannot take.
 
 ## Known issues / limits
 
-- Root exec of `/data` binaries is killed by DEFEX — including busybox as root.
-  busybox works as shell; root work uses sh/toybox.
-- No Zygisk (LSPosed etc. install but never inject).
-- No `overlayfs` tricks anywhere near `/system` (hardlockup → watchdog reset).
+* Root exec of `/data` binaries is killed by DEFEX — including busybox as root.
+  Busybox works as shell; root work uses `sh`/`toybox`. See the DEFEX table above.
+* No Zygisk (LSPosed etc. install but never inject).
+* No `overlayfs` tricks anywhere near `/system` (hardlockup → watchdog reset).
+* Reboot wipes root on the S21 too — the LKM is loaded, never persisted.
 
-## SM-T878U / DXE1 compatibility
+## Related
 
-*as of 2026-10-11*
+* [`Wtrwx/smt878u-ionstack-poc`](https://github.com/Wtrwx/smt878u-ionstack-poc) —
+  CVE-2026-43499 (IonStack/GhostLock) research on this same `SM-T878U`. Trigger
+  and geometry verified; **no working root**.
+* [KernelSU non-GKI integration notes](https://kernelsu.org/guide/how-to-integrate-for-non-gki.html)
+  — the legacy support boundary (last upstream version: v0.9.5).
 
-The S21 module is not compatible with the Tab S7 5G `SM-T878U` running
-`T878USQS8DXE1` / `4.19.113-27114284`. That firmware has
-`CONFIG_UH_LKM_BLOCK=y` and enforced module signatures, and runs SELinux
-Enforcing. The current KernelSU late-load/Magica flow cannot complete on it.
-Userspace UID 0 alone does not supply the KernelSU kernel API.
+## Licence
 
-The manager now identifies this exact firmware and explains the module-loading
-block. Manual launch, the boot receiver, and app-zygote preload share read-only
-eligibility checks; unreadable SELinux state cannot enable Magica. The verified
-S21 LKM exception remains limited to `o1s` on the HZC2 kernel above. Other 4.19
-and 5.4 kernels no longer inherit that exception.
-
-This is compatibility detection, not a working SM-T878U KernelSU port. A
-non-GKI installation would need a device-specific kernel with KernelSU
-integrated and a way to boot it; the locked stock bootloader does not provide
-that path. See the [upstream non-GKI integration notes](https://kernelsu.org/guide/how-to-integrate-for-non-gki.html)
-for the legacy support boundary (last upstream version: v0.9.5).
-
-### DEFEX execution limits on this firmware (verified on device)
-
-The UID 0 process reachable on this firmware runs in the `shell` domain and can
-exec trusted-path binaries (`/system/bin/sh`, `toybox`, `app_process`) — but is
-**SIGKILLed** the moment it execs a binary from a writable path, even a
-byte-identical copy of `/system/bin/toybox`. Direct `linker64` invocation is
-killed too, even though `linker64` itself sits at a trusted path, which closes
-the usual "let the linker do the loading" bypass. Scripts are unaffected: a
-trusted `sh` reads them as text, so a root channel here must be script-based,
-never binary-based.
-
-This is the same DEFEX layer noted under *Known issues* above, and it is why the
-S21 root channel (`dfmod/sud.c` → `sh -c`) is built the way it is. The root
-cause is `CONFIG_SECURITY_DEFEX=y` with `CONFIG_DEFEX_KERNEL_ONLY` unset, i.e.
-userspace enforcement is on. DEFEX kills instead of returning `EACCES`, so the
-failure surfaces only as `exit 137` with no diagnostic of its own.
+Upstream's. See `kernel-ksu/LICENSE`.
